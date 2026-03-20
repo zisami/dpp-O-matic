@@ -1,21 +1,19 @@
 import { json, error } from '@sveltejs/kit';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { env } from '$env/dynamic/private';
+import { getAIClient, AI_MODEL } from '$lib/ai.server';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
-	const apiKey = env.VITE_GEMINI_API_KEY ?? env.GEMINI_API_KEY ?? '';
-	if (!apiKey) {
-		throw error(500, 'GEMINI_API_KEY not configured');
+	let client;
+	try {
+		client = getAIClient();
+	} catch {
+		throw error(500, 'REQUESTY_API_KEY not configured');
 	}
 
 	const body = await request.json().catch(() => null);
 	if (!body?.productName) {
 		throw error(400, 'Missing productName');
 	}
-
-	const genAI = new GoogleGenerativeAI(apiKey);
-	const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 	const prompt = `Recherchiere EU-DPP-relevante Informationen für folgendes Produkt:
 Produkt: ${body.productName}
@@ -31,6 +29,10 @@ Analysiere und berichte über:
 
 Erstelle einen praxisorientierten Bericht auf Deutsch.`;
 
-	const result = await model.generateContent(prompt);
-	return json({ text: result.response.text() });
+	const completion = await client.chat.completions.create({
+		model: AI_MODEL,
+		messages: [{ role: 'user', content: prompt }]
+	});
+
+	return json({ text: completion.choices[0]?.message?.content ?? '' });
 };

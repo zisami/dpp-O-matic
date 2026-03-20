@@ -1,21 +1,19 @@
 import { json, error } from '@sveltejs/kit';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { env } from '$env/dynamic/private';
+import { getAIClient, AI_MODEL } from '$lib/ai.server';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
-	const apiKey = env.VITE_GEMINI_API_KEY ?? env.GEMINI_API_KEY ?? '';
-	if (!apiKey) {
-		throw error(500, 'GEMINI_API_KEY not configured');
+	let client;
+	try {
+		client = getAIClient();
+	} catch {
+		throw error(500, 'REQUESTY_API_KEY not configured');
 	}
 
 	const body = await request.json().catch(() => null);
 	if (!body?.productData) {
 		throw error(400, 'Missing productData');
 	}
-
-	const genAI = new GoogleGenerativeAI(apiKey);
-	const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 	const prompt = `Berechne einen DPP-Konformitätsscore für folgende Produktdaten:
 
@@ -47,8 +45,11 @@ WICHTIG: Antworte NUR mit einem validen JSON-Objekt, kein Markdown, keine Erklä
   "summary": "<kurze Zusammenfassung auf Deutsch>"
 }`;
 
-	const result = await model.generateContent(prompt);
-	const text = result.response.text().trim();
+	const completion = await client.chat.completions.create({
+		model: AI_MODEL,
+		messages: [{ role: 'user', content: prompt }]
+	});
+	const text = (completion.choices[0]?.message?.content ?? '').trim();
 
 	// Extract JSON: prefer the largest match to capture the full object
 	const fullMatch = text.match(/\{[\s\S]*\}/)?.[0];
