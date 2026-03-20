@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '$env/dynamic/private';
+import { getAIClient, AI_MODEL } from '$lib/ai.server';
 import type { RequestHandler } from './$types';
 
 const SYSTEM_INSTRUCTION = `Du bist ein Experte für den digitalen EU-Produktpass (DPP) und EU-Nachhaltigkeitsvorschriften. 
@@ -10,9 +10,11 @@ Fokussiere auf: EU-Ökodesign-Verordnung (ESPR), Batterieverordnung, WEEE, REACH
 Gib konkrete, umsetzbare Empfehlungen mit klarer Struktur.`;
 
 export const POST: RequestHandler = async ({ request }) => {
-	const apiKey = env.VITE_GEMINI_API_KEY ?? env.GEMINI_API_KEY ?? '';
-	if (!apiKey) {
-		throw error(500, 'GEMINI_API_KEY not configured');
+	let client;
+	try {
+		client = getAIClient();
+	} catch {
+		throw error(500, 'REQUESTY_API_KEY not configured');
 	}
 
 	const body = await request.json().catch(() => null);
@@ -25,20 +27,20 @@ export const POST: RequestHandler = async ({ request }) => {
 		history: { role: string; content: string }[];
 	};
 
-	const genAI = new GoogleGenerativeAI(apiKey);
-	const model = genAI.getGenerativeModel({
-		model: 'gemini-1.5-flash',
-		systemInstruction: SYSTEM_INSTRUCTION
+	const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+		{ role: 'system', content: SYSTEM_INSTRUCTION },
+		...history.map((msg) => ({
+			role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+			content: msg.content
+		})),
+		{ role: 'user', content: message }
+	];
+
+	const completion = await client.chat.completions.create({
+		model: AI_MODEL,
+		messages
 	});
 
-	const chatHistory = history.map((msg: { role: string; content: string }) => ({
-		role: msg.role === 'user' ? 'user' : 'model',
-		parts: [{ text: msg.content }]
-	}));
-
-	const chat = model.startChat({ history: chatHistory });
-	const result = await chat.sendMessage(message);
-	const text = result.response.text();
-
+	const text = completion.choices[0]?.message?.content ?? '';
 	return json({ text });
 };
